@@ -1,0 +1,18 @@
+# Python
+backend/venv/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+backend/dev.db
+backend/src/*.egg-info/
+backend/src/**/*.egg-info/
+
+# Next.js
+frontend/.next/
+frontend/node_modules/
+
+# Misc
+.DS_Store
+*.log
+.env
+.env.local
