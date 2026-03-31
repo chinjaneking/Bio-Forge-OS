@@ -12,7 +12,9 @@ from typing import Optional, Dict, Any, List
 import httpx
 from agents.orchestrator import OrchestratorAgent
 from agents.molecular_architect import MolecularArchitectAgent
+from agents.genetic_circuit_designer import GeneticCircuitDesignerAgent
 from lib.bio_apis import UniProtAPI, PDBAPI
+from lib.circuit_apis import KEGGAPI, BioBricksAPI, NCBIPartsAPI
 
 router = APIRouter()
 
@@ -38,6 +40,7 @@ class MutationDesignRequest(BaseModel):
 # Agent instances (in production, these would be session-managed)
 orchestrator = OrchestratorAgent()
 molecular_architect = MolecularArchitectAgent()
+circuit_designer = GeneticCircuitDesignerAgent()
 
 
 @router.get("/hello")
@@ -174,5 +177,158 @@ async def proxy_pdb_file(pdb_id: str):
             raise HTTPException(status_code=resp.status_code, detail=f"RCSB returned {resp.status_code}")
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PHASE 2 — GENETIC CIRCUIT DESIGNER
+# ─────────────────────────────────────────────────────────────────────────────
+
+class CircuitDesignRequest(BaseModel):
+    objective: str
+    host_organism: str = "E. coli"
+    context: Optional[Dict[str, Any]] = None
+
+class ExpressionOptimizationRequest(BaseModel):
+    gene_list: List[str]
+    optimization_goal: str
+
+class CRISPRDesignRequest(BaseModel):
+    target_gene: str
+    edit_type: str
+    organism: str = "E. coli"
+
+class PartsSelectionRequest(BaseModel):
+    parts_needed: List[str]
+    constraints: str
+
+
+@router.post("/circuit/design")
+async def design_circuit(body: CircuitDesignRequest, request: Request):
+    """Design a complete genetic circuit for a biosynthesis objective."""
+    try:
+        result = await circuit_designer.design_circuit(
+            body.objective, body.host_organism, dict(request.headers), body.context,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/circuit/optimize-expression")
+async def optimize_expression(body: ExpressionOptimizationRequest, request: Request):
+    """Optimize expression levels for a multi-gene pathway."""
+    try:
+        result = await circuit_designer.optimize_expression(
+            body.gene_list, body.optimization_goal, dict(request.headers),
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/circuit/crispr")
+async def design_crispr(body: CRISPRDesignRequest, request: Request):
+    """Design CRISPR guide RNAs and editing strategy."""
+    try:
+        result = await circuit_designer.design_crispr(
+            body.target_gene, body.edit_type, body.organism, dict(request.headers),
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/circuit/select-parts")
+async def select_parts(body: PartsSelectionRequest, request: Request):
+    """Select biological parts from standard registries."""
+    try:
+        result = await circuit_designer.select_parts(
+            body.parts_needed, body.constraints, dict(request.headers),
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/circuit/reset")
+async def circuit_reset():
+    circuit_designer.reset()
+    return {"message": "Circuit designer reset successfully"}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PHASE 2 — KEGG PATHWAY ROUTES
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/bio/kegg/search/{query}")
+async def search_kegg_pathways(query: str):
+    """Search KEGG pathways by keyword."""
+    try:
+        results = await KEGGAPI.search_pathway(query)
+        return {"results": results, "count": len(results)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/bio/kegg/pathway/{pathway_id:path}")
+async def get_kegg_pathway(pathway_id: str):
+    """Fetch a KEGG pathway entry (e.g. map00010 for Glycolysis)."""
+    try:
+        data = await KEGGAPI.get_pathway(pathway_id)
+        if data:
+            return data
+        raise HTTPException(status_code=404, detail="Pathway not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/bio/kegg/enzyme/{enzyme_id:path}")
+async def get_kegg_enzyme(enzyme_id: str):
+    """Fetch a KEGG enzyme entry (e.g. ec:1.1.1.1)."""
+    try:
+        data = await KEGGAPI.get_enzyme(enzyme_id)
+        if data:
+            return data
+        raise HTTPException(status_code=404, detail="Enzyme not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PHASE 2 — BIOLOGICAL PARTS ROUTES
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/bio/parts/common")
+async def get_common_parts():
+    """Return the curated list of commonly used BioBrick parts."""
+    return {"parts": BioBricksAPI.get_common_parts()}
+
+
+@router.get("/bio/parts/{part_id}")
+async def get_biobrick_part(part_id: str):
+    """Fetch a BioBrick part from the iGEM registry."""
+    try:
+        data = await BioBricksAPI.get_part(part_id)
+        if data:
+            return data
+        raise HTTPException(status_code=404, detail="Part not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/bio/ncbi/gene/{query}")
+async def search_ncbi_gene(query: str, organism: str = "Escherichia coli"):
+    """Search NCBI Gene database for a gene."""
+    try:
+        results = await NCBIPartsAPI.search_gene(query, organism)
+        return {"results": results, "count": len(results)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
